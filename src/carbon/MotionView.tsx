@@ -65,6 +65,9 @@ export function MotionView({ motion, behaviors, behaviorList, layers, th, t }: M
   const current = sections.some((s) => s.id === section) ? section : sections[0]?.id;
 
   const [editing, setEditing] = useState<{ slot: TapSlot; binding: BehaviorBinding } | null>(null);
+  // While the carry threshold slider is being dragged the meter's marker
+  // follows the knob; the value is still only sent to firmware on release.
+  const [carryThresholdDraft, setCarryThresholdDraft] = useState<number | null>(null);
 
   // Live push stays off unless this view is mounted — it's per-100ms traffic.
   const { setLiveWanted } = motion;
@@ -72,6 +75,10 @@ export function MotionView({ motion, behaviors, behaviorList, layers, th, t }: M
     setLiveWanted(true);
     return () => setLiveWanted(false);
   }, [setLiveWanted]);
+
+  // A draft belongs to the section that produced it, so navigating away can't
+  // leave a marker behind that no slider owns any more.
+  useEffect(() => setCarryThresholdDraft(null), [current]);
 
   if (!motion.loaded) return <Loading th={th} t={t} />;
 
@@ -123,6 +130,7 @@ export function MotionView({ motion, behaviors, behaviorList, layers, th, t }: M
               t={t}
               motion={motion}
               section={current ?? "carry"}
+              thresholdDraft={carryThresholdDraft}
             />
           )}
         </div>
@@ -181,6 +189,8 @@ export function MotionView({ motion, behaviors, behaviorList, layers, th, t }: M
               th={th} t={t}
               config={carryConfig}
               thresholdMax={capabilities.thresholdMax}
+              thresholdDraft={carryThresholdDraft}
+              onThresholdDraft={setCarryThresholdDraft}
               onChange={(c) => motion.applyCarryConfig(c)}
             />
           ) : current === "stillWake" && stillWakeConfig ? (
@@ -279,11 +289,13 @@ function usePeakHold(value: number, max: number, resetKey: unknown): number {
   return Math.round(peak.current);
 }
 
-function LiveMeter({ th, t, motion, section }: {
+function LiveMeter({ th, t, motion, section, thresholdDraft }: {
   th: CarbonTheme;
   t: (k: string, d: string) => string;
   motion: MotionModel;
   section: Section;
+  /** Uncommitted slider value, so the marker tracks the knob during a drag. */
+  thresholdDraft?: number | null;
 }) {
   const { live, capabilities, carryConfig } = motion;
   const max = capabilities?.thresholdMax ?? 127;
@@ -293,7 +305,11 @@ function LiveMeter({ th, t, motion, section }: {
   // Markers make raw counts legible: distance from the threshold that fires.
   const markers =
     section === "carry" && carryConfig
-      ? [{ value: carryConfig.motionThreshold, label: t("motion.carry.motionThreshold", "Motion threshold"), color: th.warning }]
+      ? [{
+          value: thresholdDraft ?? carryConfig.motionThreshold,
+          label: t("motion.carry.motionThreshold", "Motion threshold"),
+          color: th.warning,
+        }]
       : [];
 
   return (
@@ -553,14 +569,18 @@ function EnableBar({ th, title, desc, enabled, onChange }: {
 }
 
 // Full-width track with Carbon's end labels. Dragging previews locally; the
-// value commits on release so a drag isn't one RPC per pixel.
-function Slider({ th, value, min, max, step, onCommit, unit }: {
+// value commits on release so a drag isn't one RPC per pixel. Callers that
+// draw the value elsewhere (the live meter's marker) listen to onDraftChange
+// to follow the knob while it moves.
+function Slider({ th, value, min, max, step, onCommit, onDraftChange, unit }: {
   th: CarbonTheme;
   value: number;
   min: number;
   max: number;
   step?: number;
   onCommit: (v: number) => void;
+  /** Fires on every drag step, before anything is sent to firmware. */
+  onDraftChange?: (v: number) => void;
   unit?: string;
 }) {
   const end: React.CSSProperties = { fontSize: 12, fontFamily: "var(--font-mono)", color: th.textHelper, flexShrink: 0 };
@@ -576,7 +596,11 @@ function Slider({ th, value, min, max, step, onCommit, unit }: {
         max={max}
         step={step ?? 1}
         value={draft}
-        onChange={(e) => setDraft(Number(e.target.value))}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          setDraft(next);
+          onDraftChange?.(next);
+        }}
         onPointerUp={commit}
         onKeyUp={commit}
         onBlur={commit}
@@ -718,15 +742,19 @@ function TapSettings({ th, t, config, behaviors, layers, thresholdMax, onEditSlo
   );
 }
 
-function CarrySettings({ th, t, config, thresholdMax, onChange }: {
+function CarrySettings({ th, t, config, thresholdMax, thresholdDraft, onThresholdDraft, onChange }: {
   th: CarbonTheme;
   t: (k: string, d: string) => string;
   config: CarryConfig;
   thresholdMax: number;
+  /** Uncommitted slider value, shared with the live meter's marker. */
+  thresholdDraft: number | null;
+  onThresholdDraft: (v: number | null) => void;
   onChange: (c: CarryConfig) => void;
 }) {
   const set = (patch: Partial<CarryConfig>) => onChange({ ...config, ...patch });
   const dim = config.enabled ? 1 : 0.45;
+  const shownThreshold = thresholdDraft ?? config.motionThreshold;
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -739,13 +767,15 @@ function CarrySettings({ th, t, config, thresholdMax, onChange }: {
         style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 24px 24px", opacity: dim, pointerEvents: config.enabled ? "auto" : "none" }}>
         <SettingsList>
           <Field th={th} label={t("motion.carry.motionThreshold", "Motion threshold")} tag="INT_THS"
-            value={String(config.motionThreshold)} height={24}>
-            <Slider th={th} value={config.motionThreshold} min={1} max={thresholdMax} onCommit={(v) => set({ motionThreshold: v })} />
+            value={String(shownThreshold)} height={24}>
+            <Slider th={th} value={config.motionThreshold} min={1} max={thresholdMax}
+              onDraftChange={onThresholdDraft}
+              onCommit={(v) => { set({ motionThreshold: v }); onThresholdDraft(null); }} />
           </Field>
           <Field th={th} label={t("motion.carry.motionDuration", "Sustained movement")} tag="STREAK"
             value={`${Math.round(config.motionDurationMs / 1000)} s`} height={24}
             hint={t("motion.carry.motionDurationHint", "Movement must be this sustained before sleeping — a single jolt won't do it; a key press always cancels")}>
-            <Slider th={th} value={config.motionDurationMs} min={5000} max={600000} step={5000}
+            <Slider th={th} value={config.motionDurationMs} min={1000} max={30000} step={1000}
               onCommit={(v) => set({ motionDurationMs: v })} />
           </Field>
         </SettingsList>
@@ -777,7 +807,7 @@ function StillWakeSettings({ th, t, config, onChange }: {
           <Field th={th} label={t("motion.stillWake.settleDuration", "Settle time")} tag="SETTLE"
             value={`${Math.round(config.settleDurationMs / 1000)} s`} height={24}
             hint={t("motion.stillWake.settleDurationHint", "After a motion wake-up the keyboard must stay this still, or it goes straight back to sleep — a bag keeps moving, a desk doesn't")}>
-            <Slider th={th} value={config.settleDurationMs} min={2000} max={30000} step={1000}
+            <Slider th={th} value={config.settleDurationMs} min={1000} max={30000} step={1000}
               onCommit={(v) => set({ settleDurationMs: v })} />
           </Field>
         </SettingsList>
