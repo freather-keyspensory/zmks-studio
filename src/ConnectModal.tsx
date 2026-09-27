@@ -628,7 +628,7 @@ function NoTransportsOptionsPrompt() {
           </li>
           <li>
             {t("welcome.downloadAppPrefix")} {" "}
-            <ExternalLink href="/download">{t("welcome.crossPlatformApp")}</ExternalLink>
+            <ExternalLink href="https://github.com/ph-design/zmks-studio/releases">{t("welcome.crossPlatformApp")}</ExternalLink>
             .
           </li>
         </ul>
@@ -674,7 +674,7 @@ function ClientRecommendation() {
       </div>
       <a
         className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-content hover:opacity-85"
-        href="/download"
+        href="https://github.com/ph-design/zmks-studio/releases"
       >
         <Download className="size-4" />
         {t("welcome.downloadClient")}
@@ -738,7 +738,7 @@ export const ConnectModal = ({
     <GenericModal ref={dialog} backdropClassName={backdropClassName} className="w-[min(92vw,42rem)] max-h-[90vh] overflow-y-auto">
       <div className="flex items-start justify-between gap-4">
         <div className="grid grid-cols-[auto_1fr] items-center gap-3">
-          <img src="/zmk.svg" alt="ZMK Logo" className="size-10 rounded-md" />
+          <img src={`${import.meta.env.BASE_URL}zmk.svg`} alt="ZMK Logo" className="size-10 rounded-md" />
           <div>
             <h1 className="text-xl font-semibold">{t("welcome.title")}</h1>
             <p className="text-sm opacity-75">{t("welcome.subtitle")}</p>
