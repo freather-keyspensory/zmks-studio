@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import path from 'node:path';
 export default defineConfig({
-  base: '/config/zmks/',
+  base: '/zmks/',
   plugins: [react()],
   resolve: { alias: [
     {find: /^@zmkfirmware\/zmk-studio-ts-client\/(.*)$/, replacement: path.resolve('../zmk-studio-ts-client/src')+'/$1'},
